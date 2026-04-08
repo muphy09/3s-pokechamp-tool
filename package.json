@@ -1,0 +1,153 @@
+{
+  "name": "pokemmo-tool",
+  "version": "3.3.8",
+  "private": true,
+  "description": "3's PokeMMO Tool — For Blueberries",
+  "author": "3",
+  "main": "electron/bootstrap.js",
+  "scripts": {
+    "dev": "vite",
+    "preelectron:dev": "npm run build:helper -- -Dev",
+    "electron:dev": "concurrently -k -s first \"vite build --watch --emptyOutDir\" \"wait-on -v file:dist/index.html && cross-env ELECTRON_RUN_AS_NODE= ELECTRON_DIST_WATCH=1 electron .\"",
+    "dev:app": "npm run electron:dev",
+    "electron:dev:debug": "concurrently -k -s first \"vite build --watch --emptyOutDir\" \"wait-on -v file:dist/index.html && cross-env ELECTRON_RUN_AS_NODE= ELECTRON_DIST_WATCH=1 OPEN_DEVTOOLS=1 electron .\"",
+    "electron:dev:server": "concurrently -k -s first \"vite --strictPort\" \"wait-on -v http-get://localhost:5173/index.html http-get://localhost:5173/src/main.jsx && cross-env ELECTRON_RUN_AS_NODE= ELECTRON_START_URL=http://localhost:5173 OPEN_DEVTOOLS=1 electron .\"",
+    "build": "vite build",
+    "start": "cross-env ELECTRON_RUN_AS_NODE= electron .",
+    "build:helper": "node ./scripts/run-build-helper.js",
+    "clean": "rimraf release",
+    "dist": "npm run clean && npm run build:helper && npm run build && electron-builder --publish never",
+    "pack": "npm run clean && npm run build:helper && npm run build && electron-builder --win nsis,zip",
+    "pack:dir": "npm run clean && npm run build:helper && npm run build && electron-builder --dir",
+    "pack:linux": "npm run clean && npm run build:helper && npm run build && electron-builder --linux AppImage",
+    "pack:mac": "npm run clean && npm run build && electron-builder --mac dmg zip",
+    "push-release": "node -e \"const v=require('./package.json').version; const {execSync}=require('child_process'); execSync('git push origin HEAD',{stdio:'inherit'}); execSync('git push origin v'+v,{stdio:'inherit'});\"",
+    "release:patch": "npm version patch -m \"v%s\" && npm run push-release",
+    "release:minor": "npm version minor -m \"v%s\" && npm run push-release",
+    "release:major": "npm version major -m \"v%s\" && npm run push-release",
+    "publish": "npm run clean && npm run build:helper && npm run build && electron-builder --publish always",
+    "telemetry:stats": "node tools/install-telemetry-stats.mjs"
+  },
+  "build": {
+    "appId": "com.pokemmo.tool",
+    "productName": "3s PokeMMO Tool",
+    "directories": {
+      "app": ".",
+      "output": "release",
+      "buildResources": "resources"
+    },
+    "asar": true,
+    "extraMetadata": {
+      "main": "electron/bootstrap.js"
+    },
+    "files": [
+      {
+        "from": ".",
+        "filter": [
+          "dist/**",
+          "electron/**",
+          "assets/**",
+          "resources/**",
+          "package.json"
+        ]
+      },
+      "!release/**",
+      "!resources/LiveRouteOCR/**",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/icon.ico",
+        "to": "icon.ico"
+      }
+    ],
+    "win": {
+      "icon": "resources/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "extraResources": [
+        {
+          "from": "resources/LiveRouteOCR/win-x64/",
+          "to": "LiveRouteOCR",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "LiveRouteOCR/LiveRouteOCR.zip",
+          "to": "LiveRouteOCR.zip"
+        }
+      ]
+    },
+    "linux": {
+      "icon": "resources/icon.png",
+      "target": [
+        "AppImage",
+        "tar.gz"
+      ],
+      "extraResources": [
+        {
+          "from": "resources/LiveRouteOCR/linux-x64/",
+          "to": "LiveRouteOCR/linux-x64",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "LiveRouteOCR/LiveRouteOCR-linux.zip",
+          "to": "LiveRouteOCR-linux.zip"
+        }
+      ]
+    },
+    "mac": {
+      "icon": "resources/icon.icns",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "createDesktopShortcut": "always",
+      "shortcutName": "3s PokeMMO Tool"
+    },
+    "artifactName": "3s-PokeMMO-Tool-${version}-${os}-${arch}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "muphy09",
+        "repo": "3s-PokeMMO-Tool"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.1.1",
+    "eslint": "^9.34.0",
+    "marked": "^16.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "undici": "^6.21.3",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^30.5.1",
+    "electron-builder": "^24.13.3",
+    "rimraf": "^5.0.10",
+    "vite": "^5.4.0",
+    "wait-on": "^7.2.0"
+  }
+}
