@@ -1,9 +1,11 @@
+import { applyRegulationSets, DEFAULT_REGULATION_SET, REGULATION_SET_OPTIONS } from '../data/regulations.js';
+
 const SHOWDOWN_POKEDEX_URL = 'https://play.pokemonshowdown.com/data/pokedex.json';
 const SHOWDOWN_ABILITIES_URL = 'https://play.pokemonshowdown.com/data/abilities.js';
 const SHOWDOWN_ITEMS_URL = 'https://play.pokemonshowdown.com/data/items.js';
 const SHOWDOWN_TYPECHART_URL = 'https://play.pokemonshowdown.com/data/typechart.js';
 const SHOWDOWN_ITEM_SPRITE_SHEET_URL = 'https://play.pokemonshowdown.com/sprites/itemicons-sheet.png?v1';
-const CACHE_KEY = 'pokechamp:showdown:v6';
+const CACHE_KEY = 'pokechamp:showdown:v7';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 const EXCLUDED_POKEMON_NONSTANDARD = new Set(['cap', 'custom', 'glitch', 'pokestar']);
 const EXCLUDED_ITEM_NONSTANDARD = new Set(['custom', 'glitch']);
@@ -16,6 +18,7 @@ export const DEFAULT_TEAM = Array.from({ length: 6 }, () => ({
 function isValidCache(data) {
   if (!data || typeof data !== 'object') return false;
   if (!Array.isArray(data.pokemon) || !Array.isArray(data.items)) return false;
+  if (!data.pokemon.every((pokemon) => Array.isArray(pokemon?.regulations))) return false;
 
   return data.items.every((item) => typeof item?.spritenum === 'number');
 }
@@ -211,6 +214,7 @@ function buildPokemonSearchIndex(pokemon) {
         familyId,
         defaultFormId: defaultForm.id,
         forms: orderedForms,
+        regulations: unique(orderedForms.flatMap((entry) => entry.regulations || [])).sort((left, right) => left.localeCompare(right)),
         searchNames: unique(orderedForms.flatMap((entry) => [entry.name, entry.baseSpecies])),
         searchFormes: unique(orderedForms.flatMap((entry) => [entry.forme, entry.baseForme])),
         searchTypes,
@@ -266,10 +270,12 @@ export async function loadBattleDex() {
   const itemModule = parseExportedModule(itemSource, 'BattleItems') || {};
   const typeChart = parseExportedModule(typeSource, 'BattleTypeChart') || {};
 
-  const pokemon = Object.entries(pokedex)
-    .filter(([, value]) => includePokemon(value))
-    .map(([id, value]) => normalizePokemon(id, value, abilityMap))
-    .sort(sortPokemon);
+  const pokemon = applyRegulationSets(
+    Object.entries(pokedex)
+      .filter(([, value]) => includePokemon(value))
+      .map(([id, value]) => normalizePokemon(id, value, abilityMap))
+      .sort(sortPokemon),
+  );
   const items = Object.entries(itemModule)
     .filter(([, value]) => includeItem(value))
     .map(([id, value]) => normalizeItem(id, value))
@@ -285,6 +291,7 @@ export async function loadBattleDex() {
     familiesById,
     items,
     generations: unique(searchIndex.flatMap((entry) => entry.searchGenerations)).sort((left, right) => left - right),
+    regulationSets: REGULATION_SET_OPTIONS,
     types: unique(pokemon.flatMap((entry) => entry.types)).sort((left, right) => left.localeCompare(right)),
     typeChart,
   };
@@ -316,8 +323,9 @@ function matchesFilters(pokemon, filters = {}) {
   const generation = Number(filters.generation) || null;
   const primaryType = formatTypeName(filters.primaryType || '');
   const secondaryType = formatTypeName(filters.secondaryType || '');
+  const regulationSet = String(filters.regulationSet || DEFAULT_REGULATION_SET);
 
-  if (!generation && !primaryType && !secondaryType) {
+  if (!generation && !primaryType && !secondaryType && !regulationSet) {
     return true;
   }
 
@@ -327,9 +335,13 @@ function matchesFilters(pokemon, filters = {}) {
     if (generation && form.gen !== generation) return false;
     if (primaryType && !form.types.includes(primaryType)) return false;
     if (secondaryType && !form.types.includes(secondaryType)) return false;
+    if (regulationSet && !form.regulations?.includes(regulationSet)) return false;
     return true;
   });
 }
+
+export { DEFAULT_REGULATION_SET, REGULATION_SET_OPTIONS } from '../data/regulations.js';
+export { filterPokemonFormsByRegulation } from '../data/regulations.js';
 
 export function searchPokemon(list, query, filters = {}) {
   const normalizedQuery = String(query || '').trim().toLowerCase();

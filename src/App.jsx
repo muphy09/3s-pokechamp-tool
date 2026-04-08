@@ -4,10 +4,13 @@ import { NATURES, describeNature, getNature } from './data/natures.js';
 import {
   computeTypeBuckets,
   computeTypeMultiplier,
+  DEFAULT_REGULATION_SET,
+  filterPokemonFormsByRegulation,
   getArtworkUrl,
   getBattleSpriteSources,
   getItemIconStyle,
   loadBattleDex,
+  REGULATION_SET_OPTIONS,
   searchItems,
   searchPokemon,
   statEntries,
@@ -556,9 +559,33 @@ function HoverCard({ hoverState }) {
   );
 }
 
-function SearchFilters({ generations, types, filters, onChange, compact = false }) {
+function SearchFilters({
+  generations,
+  types,
+  filters,
+  onChange,
+  compact = false,
+  regulationSet = DEFAULT_REGULATION_SET,
+  regulationSets = REGULATION_SET_OPTIONS,
+  onRegulationChange,
+}) {
   return (
     <div className={`search-filter-row${compact ? ' search-filter-row-compact' : ''}`}>
+      <label className="search-filter-field">
+        <span className="fact-label">Regulation Set</span>
+        <select
+          className="search-input search-select"
+          value={regulationSet}
+          onChange={(event) => onRegulationChange?.(event.target.value)}
+        >
+          {regulationSets.map((option) => (
+            <option key={option.value || 'none'} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
       <label className="search-filter-field">
         <span className="fact-label">Generation</span>
         <select
@@ -654,6 +681,8 @@ function SearchDrawer({
   onChoose,
   onClear,
   drawerState,
+  regulationSet,
+  onRegulationChange,
   selectedEntry,
 }) {
   const [query, setQuery] = useState('');
@@ -669,9 +698,10 @@ function SearchDrawer({
 
   if (!drawerState.open) return null;
 
-  const results = searchPokemon(dataState.data?.searchIndex || [], deferredQuery, filters);
+  const results = searchPokemon(dataState.data?.searchIndex || [], deferredQuery, { ...filters, regulationSet });
   const statusLabel = selectedEntry?.pokemon ? getSlotStatus(selectedEntry) : 'Empty';
   const generations = dataState.data?.generations || [];
+  const regulationSets = dataState.data?.regulationSets || REGULATION_SET_OPTIONS;
   const types = dataState.data?.types || [];
 
   return (
@@ -704,7 +734,16 @@ function SearchDrawer({
           </button>
         </div>
 
-        <SearchFilters generations={generations} types={types} filters={filters} onChange={setFilters} compact />
+        <SearchFilters
+          generations={generations}
+          types={types}
+          filters={filters}
+          onChange={setFilters}
+          compact
+          regulationSet={regulationSet}
+          regulationSets={regulationSets}
+          onRegulationChange={onRegulationChange}
+        />
 
         {dataState.status === 'loading' ? <div className="drawer-empty">Loading Pokemon data...</div> : null}
         {dataState.status === 'error' ? <div className="drawer-empty">{dataState.error}</div> : null}
@@ -720,12 +759,13 @@ function SearchDrawer({
   );
 }
 
-function PokemonSearchTab({ dataState, onOpenProfile }) {
+function PokemonSearchTab({ dataState, onOpenProfile, regulationSet, onRegulationChange }) {
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState(createSearchFilters);
   const deferredQuery = useDeferredValue(query);
-  const results = searchPokemon(dataState.data?.searchIndex || [], deferredQuery, filters);
+  const results = searchPokemon(dataState.data?.searchIndex || [], deferredQuery, { ...filters, regulationSet });
   const generations = dataState.data?.generations || [];
+  const regulationSets = dataState.data?.regulationSets || REGULATION_SET_OPTIONS;
   const types = dataState.data?.types || [];
 
   return (
@@ -741,7 +781,15 @@ function PokemonSearchTab({ dataState, onOpenProfile }) {
         />
       </div>
 
-      <SearchFilters generations={generations} types={types} filters={filters} onChange={setFilters} />
+      <SearchFilters
+        generations={generations}
+        types={types}
+        filters={filters}
+        onChange={setFilters}
+        regulationSet={regulationSet}
+        regulationSets={regulationSets}
+        onRegulationChange={onRegulationChange}
+      />
 
       {dataState.status === 'loading' ? <div className="drawer-empty">Loading Pokemon data...</div> : null}
       {dataState.status === 'error' ? <div className="drawer-empty">{dataState.error}</div> : null}
@@ -927,8 +975,10 @@ function ProfileOverlay({ entry, onClose, onNatureChange }) {
   );
 }
 
-function FormPickerOverlay({ family, mode, onClose, onSelect }) {
-  if (!family?.forms?.length) return null;
+function FormPickerOverlay({ family, mode, onClose, onSelect, regulationSet = DEFAULT_REGULATION_SET }) {
+  const forms = filterPokemonFormsByRegulation(family, regulationSet);
+
+  if (!forms.length) return null;
 
   const actionLabel = mode === 'drawer' ? 'Choose the form to assign to this slot.' : 'Choose the form to open in the profile view.';
 
@@ -947,7 +997,7 @@ function FormPickerOverlay({ family, mode, onClose, onSelect }) {
         </div>
 
         <div className="form-picker-grid">
-          {family.forms.map((pokemon) => (
+          {forms.map((pokemon) => (
             <button key={pokemon.id} type="button" className="result-card form-option-card" onClick={() => onSelect(pokemon.id)}>
               <PokemonArtwork pokemon={pokemon} className="result-artwork" />
               <div className="result-copy">
@@ -1193,6 +1243,7 @@ function ContextMenu({ menuState, actions, onClose }) {
 export default function App() {
   const [activeTab, setActiveTab] = useState(readStoredTab);
   const [battleMode, setBattleMode] = useState(readStoredMode);
+  const [regulationSet, setRegulationSet] = useState(DEFAULT_REGULATION_SET);
   const [playerTeam, setPlayerTeam] = useState(() => readStoredTeam(PLAYER_TEAM_KEY));
   const [opponentTeam, setOpponentTeam] = useState(() => readStoredTeam(OPPONENT_TEAM_KEY));
   const [drawerState, setDrawerState] = useState({ open: false, side: 'player', rosterIndex: 0 });
@@ -1550,7 +1601,9 @@ export default function App() {
   }
 
   function handleCatalogResultSelect(pokemon) {
-    if (pokemon.hasAlternateForms) {
+    const selectableForms = filterPokemonFormsByRegulation(pokemon, regulationSet);
+
+    if (selectableForms.length > 1) {
       setFormPickerState({
         familyId: pokemon.familyId,
         mode: 'search',
@@ -1558,11 +1611,13 @@ export default function App() {
       return;
     }
 
-    openSearchProfile(pokemon.id);
+    openSearchProfile((selectableForms[0] || pokemon).id);
   }
 
   function handleDrawerResultSelect(pokemon) {
-    if (pokemon.hasAlternateForms) {
+    const selectableForms = filterPokemonFormsByRegulation(pokemon, regulationSet);
+
+    if (selectableForms.length > 1) {
       setFormPickerState({
         familyId: pokemon.familyId,
         mode: 'drawer',
@@ -1572,7 +1627,7 @@ export default function App() {
       return;
     }
 
-    setPokemonForSlot(drawerState.side, drawerState.rosterIndex, pokemon.id);
+    setPokemonForSlot(drawerState.side, drawerState.rosterIndex, (selectableForms[0] || pokemon).id);
     setDrawerState((current) => ({ ...current, open: false }));
   }
 
@@ -1972,7 +2027,12 @@ export default function App() {
 
       <main className="app-main">
         {activeTab === 'search' ? (
-          <PokemonSearchTab dataState={dataState} onOpenProfile={handleCatalogResultSelect} />
+          <PokemonSearchTab
+            dataState={dataState}
+            onOpenProfile={handleCatalogResultSelect}
+            regulationSet={regulationSet}
+            onRegulationChange={setRegulationSet}
+          />
         ) : activeTab === 'items' ? (
           <ItemSearchTab dataState={dataState} />
         ) : (
@@ -2098,6 +2158,8 @@ export default function App() {
         dataState={dataState}
         drawerState={drawerState}
         selectedEntry={drawerSelectedEntry}
+        regulationSet={regulationSet}
+        onRegulationChange={setRegulationSet}
         onClose={() => setDrawerState((current) => ({ ...current, open: false }))}
         onClear={() => {
           clearSlot(drawerState.side, drawerState.rosterIndex);
@@ -2106,7 +2168,13 @@ export default function App() {
         onChoose={handleDrawerResultSelect}
       />
 
-      <FormPickerOverlay family={activeFormFamily} mode={formPickerState?.mode} onClose={() => setFormPickerState(null)} onSelect={handleFormSelect} />
+      <FormPickerOverlay
+        family={activeFormFamily}
+        mode={formPickerState?.mode}
+        regulationSet={regulationSet}
+        onClose={() => setFormPickerState(null)}
+        onSelect={handleFormSelect}
+      />
 
       <ProfileOverlay
         entry={activeProfileEntry}
