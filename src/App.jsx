@@ -83,6 +83,7 @@ function createEmptyRosterSlot() {
   return {
     pokemonId: '',
     nature: DEFAULT_NATURE,
+    ability: '',
     fainted: false,
   };
 }
@@ -100,6 +101,7 @@ function normalizeRoster(rawRoster) {
     return {
       pokemonId: typeof slot?.pokemonId === 'string' ? slot.pokemonId : '',
       nature: typeof slot?.nature === 'string' ? slot.nature : DEFAULT_NATURE,
+      ability: typeof slot?.ability === 'string' ? slot.ability : '',
       fainted: Boolean(slot?.fainted),
     };
   });
@@ -170,6 +172,16 @@ function getTeamSize(battleMode) {
   return battleMode === '1v1' ? SINGLE_BATTLE_TEAM_SIZE : MAX_TEAM_SIZE;
 }
 
+function getDefaultAbilityName(pokemon) {
+  return pokemon?.abilities?.[0]?.name || '';
+}
+
+function getSelectedAbility(pokemon, abilityName) {
+  if (!pokemon) return null;
+
+  return pokemon.abilities.find((entry) => entry.name === abilityName) || pokemon.abilities[0] || null;
+}
+
 function buildTeamView(teamState, byId, typeChart, battleMode) {
   const normalized = normalizeTeamState(teamState);
   const visibleTeamSize = getTeamSize(battleMode);
@@ -178,11 +190,14 @@ function buildTeamView(teamState, byId, typeChart, battleMode) {
   const rosterEntries = normalized.roster.map((slot, rosterIndex) => {
     const pokemon = slot.pokemonId ? byId[slot.pokemonId] || null : null;
     const activePosition = visibleActiveSlots.findIndex((value) => value === rosterIndex);
+    const selectedAbility = getSelectedAbility(pokemon, slot.ability);
 
     return {
       rosterIndex,
       pokemon,
       nature: slot.nature || DEFAULT_NATURE,
+      ability: selectedAbility?.name || slot.ability || '',
+      selectedAbility,
       fainted: Boolean(slot.fainted),
       buckets: pokemon ? computeTypeBuckets(pokemon.types, typeChart) : null,
       isActive: activePosition !== -1,
@@ -198,6 +213,8 @@ function buildTeamView(teamState, byId, typeChart, battleMode) {
         rosterIndex: null,
         pokemon: null,
         nature: DEFAULT_NATURE,
+        ability: '',
+        selectedAbility: null,
         fainted: false,
         buckets: null,
         isActive: false,
@@ -474,9 +491,10 @@ function PokemonBattleSprite({ pokemon, perspective = 'front', className = '', c
 function HoverCard({ hoverState }) {
   if (!hoverState?.pokemon) return null;
 
-  const { pokemon, nature, buckets, position } = hoverState;
+  const { pokemon, ability, selectedAbility, buckets, position } = hoverState;
   const weak = renderWeaknessChips(buckets, 'weak').slice(0, 6);
-  const natureInfo = describeNature(getNature(nature));
+  const activeAbility = selectedAbility || getSelectedAbility(pokemon, ability);
+  const abilityMeta = activeAbility?.description || (activeAbility?.slot ? `${activeAbility.slot} Ability` : 'No ability data available.');
 
   return (
     <div className="hover-card" style={{ left: position.x, top: position.y }}>
@@ -513,8 +531,8 @@ function HoverCard({ hoverState }) {
       </div>
 
       <div className="hover-footer">
-        <span className="nature-pill">{nature}</span>
-        <span className="muted-copy">{natureInfo}</span>
+        <span className="nature-pill">{activeAbility?.name || 'No Ability'}</span>
+        <span className="muted-copy">{abilityMeta}</span>
       </div>
     </div>
   );
@@ -838,13 +856,17 @@ function ItemSearchTab({ dataState }) {
   );
 }
 
-function ProfileOverlay({ entry, onClose, onNatureChange }) {
+function ProfileOverlay({ entry, mode = 'search', onClose, onNatureChange, onAbilityChange }) {
   if (!entry?.pokemon) return null;
 
-  const { pokemon, nature, buckets, fainted, isActive } = entry;
+  const { pokemon, nature, ability, selectedAbility, buckets, fainted, isActive } = entry;
   const weak = renderWeaknessChips(buckets, 'weak');
   const resist = renderWeaknessChips(buckets, 'resist');
   const natureInfo = describeNature(getNature(nature));
+  const activeAbility = selectedAbility || getSelectedAbility(pokemon, ability);
+  const activeAbilityMeta = activeAbility
+    ? `${activeAbility.slot}${activeAbility.description ? ` - ${activeAbility.description}` : ''}`
+    : 'No ability data available from the source.';
   const stateLabel = fainted ? 'Fainted' : isActive ? 'Active on the field' : 'On the bench';
 
   return (
@@ -877,18 +899,41 @@ function ProfileOverlay({ entry, onClose, onNatureChange }) {
             <p className="eyebrow">Overview</p>
             <div className="profile-facts">
               <div>
-                <span className="fact-label">Nature</span>
-                <select className="search-input search-select nature-select-wide" value={nature} onChange={(event) => onNatureChange(event.target.value)}>
-                  {NATURES.map((item) => (
-                    <option key={item.name} value={item.name}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="muted-copy">{natureInfo}</p>
+                <span className="fact-label">{mode === 'battle' ? 'Ability' : 'Nature'}</span>
+                {mode === 'battle' ? (
+                  <>
+                    <select
+                      className="search-input search-select nature-select-wide"
+                      value={activeAbility?.name || ''}
+                      onChange={(event) => onAbilityChange?.(event.target.value)}
+                    >
+                      {pokemon.abilities.length ? (
+                        pokemon.abilities.map((entryAbility) => (
+                          <option key={`${pokemon.id}-${entryAbility.slot}-${entryAbility.name}`} value={entryAbility.name}>
+                            {entryAbility.name}
+                          </option>
+                        ))
+                      ) : (
+                        <option value="">No ability data</option>
+                      )}
+                    </select>
+                    <p className="muted-copy">{activeAbilityMeta}</p>
+                  </>
+                ) : (
+                  <>
+                    <select className="search-input search-select nature-select-wide" value={nature} onChange={(event) => onNatureChange(event.target.value)}>
+                      {NATURES.map((item) => (
+                        <option key={item.name} value={item.name}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="muted-copy">{natureInfo}</p>
+                  </>
+                )}
               </div>
               <div>
-                <span className="fact-label">Abilities</span>
+                <span className="fact-label">{mode === 'battle' ? 'Available Abilities' : 'Abilities'}</span>
                 <div className="ability-list">
                   {pokemon.abilities.map((ability) => (
                     <article key={`${pokemon.id}-${ability.slot}-${ability.name}`} className="ability-card">
@@ -1132,7 +1177,7 @@ function ActiveBattleSlot({
           </div>
           <div className="active-battle-slot-footer">
             <strong>{entry.pokemon.name}</strong>
-            <span className="muted-copy">{entry.nature}</span>
+            <span className="muted-copy">{entry.ability || 'No ability data'}</span>
           </div>
         </>
       ) : (
@@ -1434,12 +1479,14 @@ export default function App() {
   function setPokemonForSlot(side, rosterIndex, pokemonId) {
     const needsReplacement = replacementState?.side === side;
     const targetReplacementPosition = needsReplacement ? replacementState.activePosition : null;
+    const pokemon = pokemonId ? byId[pokemonId] || null : null;
 
     updateTeam(side, (current) => {
       const next = cloneTeamState(current);
       next.roster[rosterIndex] = {
         ...next.roster[rosterIndex],
         pokemonId,
+        ability: getDefaultAbilityName(pokemon),
         fainted: false,
       };
 
@@ -1510,6 +1557,17 @@ export default function App() {
       next.roster[rosterIndex] = {
         ...next.roster[rosterIndex],
         nature,
+      };
+      return next;
+    });
+  }
+
+  function setAbilityForSlot(side, rosterIndex, ability) {
+    updateTeam(side, (current) => {
+      const next = cloneTeamState(current);
+      next.roster[rosterIndex] = {
+        ...next.roster[rosterIndex],
+        ability,
       };
       return next;
     });
@@ -2149,6 +2207,7 @@ export default function App() {
 
       <ProfileOverlay
         entry={activeProfileEntry}
+        mode={activeTab === 'battle' ? 'battle' : 'search'}
         onClose={() => {
           setProfileState(null);
           setSearchProfileState({ pokemonId: '', nature: DEFAULT_NATURE });
@@ -2160,6 +2219,10 @@ export default function App() {
           }
           if (!profileState) return;
           setNatureForSlot(profileState.side, profileState.rosterIndex, nature);
+        }}
+        onAbilityChange={(ability) => {
+          if (activeTab !== 'battle' || !profileState) return;
+          setAbilityForSlot(profileState.side, profileState.rosterIndex, ability);
         }}
       />
 
