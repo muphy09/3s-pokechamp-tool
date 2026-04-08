@@ -130,36 +130,6 @@ function normalizeActiveSlots(activeSlots, roster) {
   return next;
 }
 
-function deriveActiveSlots(roster) {
-  const filledIndices = roster
-    .map((slot, index) => (slot.pokemonId && !slot.fainted ? index : null))
-    .filter((value) => value != null);
-
-  return [filledIndices[0] ?? null, filledIndices[1] ?? null];
-}
-
-function hydrateTeamState(rawValue) {
-  if (Array.isArray(rawValue)) {
-    const roster = normalizeRoster(rawValue);
-    return {
-      roster,
-      activeSlots: normalizeActiveSlots(deriveActiveSlots(roster), roster),
-    };
-  }
-
-  if (!rawValue || typeof rawValue !== 'object') {
-    return createDefaultTeamState();
-  }
-
-  const roster = normalizeRoster(rawValue.roster);
-  const activeSlots = Array.isArray(rawValue.activeSlots) ? rawValue.activeSlots : deriveActiveSlots(roster);
-
-  return {
-    roster,
-    activeSlots: normalizeActiveSlots(activeSlots, roster),
-  };
-}
-
 function normalizeTeamState(rawValue) {
   const roster = normalizeRoster(rawValue?.roster);
   return {
@@ -175,15 +145,6 @@ function cloneTeamState(teamState) {
   };
 }
 
-function readStoredTeam(key) {
-  try {
-    const raw = JSON.parse(localStorage.getItem(key) || 'null');
-    return hydrateTeamState(raw);
-  } catch {
-    return createDefaultTeamState();
-  }
-}
-
 function readStoredMode() {
   try {
     const raw = localStorage.getItem(BATTLE_MODE_KEY);
@@ -193,13 +154,12 @@ function readStoredMode() {
   }
 }
 
-function readStoredTab() {
+function clearStoredSessionState() {
   try {
-    const tab = localStorage.getItem(TAB_KEY);
-    return tab === 'battle' || tab === 'items' || tab === 'search' ? tab : 'search';
-  } catch {
-    return 'search';
-  }
+    localStorage.removeItem(TAB_KEY);
+    localStorage.removeItem(PLAYER_TEAM_KEY);
+    localStorage.removeItem(OPPONENT_TEAM_KEY);
+  } catch {}
 }
 
 function getActiveCount(battleMode) {
@@ -1241,11 +1201,11 @@ function ContextMenu({ menuState, actions, onClose }) {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState(readStoredTab);
+  const [activeTab, setActiveTab] = useState('search');
   const [battleMode, setBattleMode] = useState(readStoredMode);
   const [regulationSet, setRegulationSet] = useState(DEFAULT_REGULATION_SET);
-  const [playerTeam, setPlayerTeam] = useState(() => readStoredTeam(PLAYER_TEAM_KEY));
-  const [opponentTeam, setOpponentTeam] = useState(() => readStoredTeam(OPPONENT_TEAM_KEY));
+  const [playerTeam, setPlayerTeam] = useState(createDefaultTeamState);
+  const [opponentTeam, setOpponentTeam] = useState(createDefaultTeamState);
   const [drawerState, setDrawerState] = useState({ open: false, side: 'player', rosterIndex: 0 });
   const [formPickerState, setFormPickerState] = useState(null);
   const [profileState, setProfileState] = useState(null);
@@ -1280,28 +1240,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(TAB_KEY, activeTab);
-    } catch {}
-  }, [activeTab]);
+    clearStoredSessionState();
+  }, []);
 
   useEffect(() => {
     try {
       localStorage.setItem(BATTLE_MODE_KEY, battleMode);
     } catch {}
   }, [battleMode]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(PLAYER_TEAM_KEY, JSON.stringify(playerTeam));
-    } catch {}
-  }, [playerTeam]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(OPPONENT_TEAM_KEY, JSON.stringify(opponentTeam));
-    } catch {}
-  }, [opponentTeam]);
 
   const visibleTeamSize = getTeamSize(battleMode);
   const visibleActiveCount = getActiveCount(battleMode);
