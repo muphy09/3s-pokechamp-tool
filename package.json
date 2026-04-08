@@ -13,20 +13,19 @@
     "build": "vite build",
     "start": "cross-env ELECTRON_RUN_AS_NODE= electron .",
     "clean": "rimraf release dist",
-    "dist": "npm run clean && npm run build && electron-builder --win nsis,zip --publish never",
-    "pack": "npm run clean && npm run build && electron-builder --win nsis,zip --publish never",
+    "dist": "npm run clean && npm run build && electron-builder --win --publish never",
+    "pack": "npm run clean && npm run build && electron-builder --win --publish never",
     "pack:dir": "npm run clean && npm run build && electron-builder --win --dir",
     "push-release": "git push origin HEAD --follow-tags",
     "release:patch": "npm version patch -m \"v%s\" && npm run push-release",
     "release:minor": "npm version minor -m \"v%s\" && npm run push-release",
     "release:major": "npm version major -m \"v%s\" && npm run push-release",
-    "publish": "npm run clean && npm run build && electron-builder --win nsis,zip --publish always"
+    "publish": "npm run clean && npm run build && electron-builder --win --publish always"
   },
   "build": {
     "appId": "com.muphy09.pokechamptool",
     "productName": "3's PokeChamp Tool",
     "directories": {
-      "app": ".",
       "output": "release",
       "buildResources": "resources"
     },
