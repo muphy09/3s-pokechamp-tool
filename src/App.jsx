@@ -19,7 +19,8 @@ const BATTLE_MODE_KEY = 'pokechamp:battle-mode';
 const PLAYER_TEAM_KEY = 'pokechamp:player-team';
 const OPPONENT_TEAM_KEY = 'pokechamp:opponent-team';
 const DEFAULT_NATURE = 'Serious';
-const TEAM_SIZE = 3;
+const SINGLE_BATTLE_TEAM_SIZE = 3;
+const MAX_TEAM_SIZE = 6;
 const DRAG_MIME = 'application/x-pokechamp-team-slot';
 const CONTEXT_MENU_WIDTH = 260;
 const CONTEXT_MENU_HEIGHT = 320;
@@ -85,13 +86,13 @@ function createEmptyRosterSlot() {
 
 function createDefaultTeamState() {
   return {
-    roster: Array.from({ length: TEAM_SIZE }, () => createEmptyRosterSlot()),
+    roster: Array.from({ length: MAX_TEAM_SIZE }, () => createEmptyRosterSlot()),
     activeSlots: [null, null],
   };
 }
 
 function normalizeRoster(rawRoster) {
-  return Array.from({ length: TEAM_SIZE }, (_, index) => {
+  return Array.from({ length: MAX_TEAM_SIZE }, (_, index) => {
     const slot = Array.isArray(rawRoster) ? rawRoster[index] : null;
     return {
       pokemonId: typeof slot?.pokemonId === 'string' ? slot.pokemonId : '',
@@ -111,7 +112,7 @@ function normalizeActiveSlots(activeSlots, roster) {
     const rosterIndex = Number.isInteger(value) ? value : null;
     const slot = rosterIndex != null ? roster[rosterIndex] : null;
 
-    if (rosterIndex == null || rosterIndex < 0 || rosterIndex >= TEAM_SIZE) continue;
+    if (rosterIndex == null || rosterIndex < 0 || rosterIndex >= roster.length) continue;
     if (!slot?.pokemonId || slot.fainted || used.has(rosterIndex)) continue;
 
     next[position] = rosterIndex;
@@ -202,8 +203,13 @@ function getActiveCount(battleMode) {
   return battleMode === '2v2' ? 2 : 1;
 }
 
+function getTeamSize(battleMode) {
+  return battleMode === '1v1' ? SINGLE_BATTLE_TEAM_SIZE : MAX_TEAM_SIZE;
+}
+
 function buildTeamView(teamState, byId, typeChart, battleMode) {
   const normalized = normalizeTeamState(teamState);
+  const visibleTeamSize = getTeamSize(battleMode);
   const visibleActiveSlots = normalized.activeSlots.slice(0, getActiveCount(battleMode));
 
   const rosterEntries = normalized.roster.map((slot, rosterIndex) => {
@@ -220,6 +226,8 @@ function buildTeamView(teamState, byId, typeChart, battleMode) {
       activePosition,
     };
   });
+
+  const visibleRosterEntries = rosterEntries.slice(0, visibleTeamSize);
 
   const activeEntries = visibleActiveSlots.map((rosterIndex, activePosition) => {
     if (rosterIndex == null) {
@@ -241,7 +249,7 @@ function buildTeamView(teamState, byId, typeChart, battleMode) {
   });
 
   return {
-    rosterEntries,
+    rosterEntries: visibleRosterEntries,
     activeEntries,
     visibleActiveSlots,
     fullActiveSlots: normalized.activeSlots,
@@ -1244,6 +1252,9 @@ export default function App() {
     } catch {}
   }, [opponentTeam]);
 
+  const visibleTeamSize = getTeamSize(battleMode);
+  const visibleActiveCount = getActiveCount(battleMode);
+
   useEffect(() => {
     if (!contextMenuState) return undefined;
 
@@ -1264,6 +1275,33 @@ export default function App() {
       window.removeEventListener('keydown', handleEscape);
     };
   }, [contextMenuState]);
+
+  useEffect(() => {
+    setHoverState(null);
+    setDragState(null);
+    setContextMenuState((current) => {
+      if (!current) return null;
+      if (current.scope === 'roster' && current.rosterIndex >= visibleTeamSize) return null;
+      if (current.scope === 'active' && current.activePosition >= visibleActiveCount) return null;
+      return current;
+    });
+    setDrawerState((current) => {
+      if (!current.open || current.rosterIndex < visibleTeamSize) return current;
+      return { ...current, open: false };
+    });
+    setFormPickerState((current) => {
+      if (!current || current.mode !== 'drawer' || current.rosterIndex < visibleTeamSize) return current;
+      return null;
+    });
+    setProfileState((current) => {
+      if (!current || current.rosterIndex < visibleTeamSize) return current;
+      return null;
+    });
+    setReplacementState((current) => {
+      if (!current || current.activePosition < visibleActiveCount) return current;
+      return null;
+    });
+  }, [visibleActiveCount, visibleTeamSize]);
 
   useEffect(() => {
     let offChecking = () => {};
@@ -1358,6 +1396,7 @@ export default function App() {
   const recommendedTypes = computeAttackRecommendations(opponentView.activeEntries, typeChart);
   const drawerSelectedEntry = drawerState.side === 'player' ? playerView.rosterEntries[drawerState.rosterIndex] : opponentView.rosterEntries[drawerState.rosterIndex];
   const activeFormFamily = formPickerState?.familyId ? familiesById[formPickerState.familyId] || null : null;
+  const hasBattlefieldSelections = [...playerTeam.roster, ...opponentTeam.roster].some((slot) => slot?.pokemonId);
 
   function getTeamView(side) {
     return side === 'player' ? playerView : opponentView;
@@ -1418,6 +1457,20 @@ export default function App() {
     if (profileState?.side === side && profileState?.rosterIndex === rosterIndex) {
       setProfileState(null);
     }
+  }
+
+  function clearAllTeams() {
+    startTransition(() => {
+      setPlayerTeam(createDefaultTeamState());
+      setOpponentTeam(createDefaultTeamState());
+    });
+    setDrawerState((current) => ({ ...current, open: false }));
+    setFormPickerState(null);
+    setProfileState(null);
+    setHoverState(null);
+    setContextMenuState(null);
+    setReplacementState(null);
+    setDragState(null);
   }
 
   function restoreFaintedPokemon(side, rosterIndex) {
@@ -1929,6 +1982,9 @@ export default function App() {
                 <p className="eyebrow">Battle Screen</p>
                 <h2>Field Planner</h2>
               </div>
+              <button className="ghost-button battle-clear-button" type="button" onClick={clearAllTeams} disabled={!hasBattlefieldSelections}>
+                Clear All
+              </button>
             </div>
 
             {replacementCopy ? <div className="replacement-banner">{replacementCopy}</div> : null}

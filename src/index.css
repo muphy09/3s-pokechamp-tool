@@ -1067,7 +1067,16 @@ a {
 }
 
 .battle-board-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
   margin-bottom: 10px;
+}
+
+.battle-clear-button {
+  margin-left: auto;
 }
 
 .battle-board h2,
@@ -1723,6 +1732,14 @@ a {
   .team-strip-opponent,
   .team-strip-player {
     align-items: flex-start;
+  }
+
+  .battle-board-head {
+    align-items: flex-start;
+  }
+
+  .battle-clear-button {
+    margin-left: 0;
   }
 
   .team-strip-grid {
