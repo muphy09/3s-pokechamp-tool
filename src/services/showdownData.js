@@ -1,20 +1,31 @@
 const SHOWDOWN_POKEDEX_URL = 'https://play.pokemonshowdown.com/data/pokedex.json';
 const SHOWDOWN_ABILITIES_URL = 'https://play.pokemonshowdown.com/data/abilities.js';
+const SHOWDOWN_ITEMS_URL = 'https://play.pokemonshowdown.com/data/items.js';
 const SHOWDOWN_TYPECHART_URL = 'https://play.pokemonshowdown.com/data/typechart.js';
-const CACHE_KEY = 'pokechamp:showdown:v3';
+const SHOWDOWN_ITEM_SPRITE_SHEET_URL = 'https://play.pokemonshowdown.com/sprites/itemicons-sheet.png?v1';
+const CACHE_KEY = 'pokechamp:showdown:v5';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
-const EXCLUDED_NONSTANDARD = new Set(['cap', 'custom', 'glitch', 'pokestar']);
+const EXCLUDED_POKEMON_NONSTANDARD = new Set(['cap', 'custom', 'glitch', 'pokestar']);
+const EXCLUDED_ITEM_NONSTANDARD = new Set(['custom', 'glitch']);
 
 export const DEFAULT_TEAM = Array.from({ length: 6 }, () => ({
   pokemonId: '',
   nature: 'Serious',
 }));
 
+function isValidCache(data) {
+  if (!data || typeof data !== 'object') return false;
+  if (!Array.isArray(data.pokemon) || !Array.isArray(data.items)) return false;
+
+  return data.items.every((item) => typeof item?.spritenum === 'number');
+}
+
 function readCache() {
   try {
     const raw = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
     if (!raw?.data || !raw?.timestamp) return null;
     if (Date.now() - raw.timestamp > CACHE_TTL_MS) return null;
+    if (!isValidCache(raw.data)) return null;
     return raw.data;
   } catch {
     return null;
@@ -66,9 +77,20 @@ function includePokemon(entry) {
   if (Number(entry.num) <= 0) return false;
 
   const nonstandard = String(entry.isNonstandard || '').toLowerCase();
-  if (EXCLUDED_NONSTANDARD.has(nonstandard)) return false;
+  if (EXCLUDED_POKEMON_NONSTANDARD.has(nonstandard)) return false;
 
   return (Number(entry.gen) || guessGen(Number(entry.num))) <= 9;
+}
+
+function includeItem(entry) {
+  if (!entry || typeof entry !== 'object') return false;
+  if (!entry.name) return false;
+  if (Number(entry.num) <= 0) return false;
+
+  const nonstandard = String(entry.isNonstandard || '').toLowerCase();
+  if (EXCLUDED_ITEM_NONSTANDARD.has(nonstandard)) return false;
+
+  return (Number(entry.gen) || 9) <= 9;
 }
 
 function normalizeAbilities(rawAbilities = {}, abilityMap) {
@@ -131,6 +153,22 @@ function normalizePokemon(id, entry, abilityMap) {
 function sortPokemon(a, b) {
   if (a.dexNumber !== b.dexNumber) return a.dexNumber - b.dexNumber;
   return a.name.localeCompare(b.name);
+}
+
+function normalizeItem(id, entry) {
+  return {
+    id,
+    itemNumber: Number(entry.num) || 0,
+    name: entry.name || id,
+    gen: Number(entry.gen) || null,
+    spritenum: Number(entry.spritenum) || 0,
+    description: entry.shortDesc || entry.desc || 'No description available from the source.',
+    searchText: [entry.name, entry.shortDesc, entry.desc].filter(Boolean).join(' ').toLowerCase(),
+  };
+}
+
+function sortItems(a, b) {
+  return a.name.localeCompare(b.name) || a.itemNumber - b.itemNumber;
 }
 
 function selectDefaultPokemonForm(forms) {
@@ -206,9 +244,10 @@ export async function loadBattleDex() {
   const cached = readCache();
   if (cached) return cached;
 
-  const [pokedex, abilitySource, typeSource] = await Promise.all([
+  const [pokedex, abilitySource, itemSource, typeSource] = await Promise.all([
     fetchJson(SHOWDOWN_POKEDEX_URL),
     fetchText(SHOWDOWN_ABILITIES_URL),
+    fetchText(SHOWDOWN_ITEMS_URL),
     fetchText(SHOWDOWN_TYPECHART_URL),
   ]);
 
@@ -218,12 +257,17 @@ export async function loadBattleDex() {
       .filter((value) => value?.name)
       .map((value) => [toId(value.name), value]),
   );
+  const itemModule = parseExportedModule(itemSource, 'BattleItems') || {};
   const typeChart = parseExportedModule(typeSource, 'BattleTypeChart') || {};
 
   const pokemon = Object.entries(pokedex)
     .filter(([, value]) => includePokemon(value))
     .map(([id, value]) => normalizePokemon(id, value, abilityMap))
     .sort(sortPokemon);
+  const items = Object.entries(itemModule)
+    .filter(([, value]) => includeItem(value))
+    .map(([id, value]) => normalizeItem(id, value))
+    .sort(sortItems);
 
   const byId = Object.fromEntries(pokemon.map((entry) => [entry.id, entry]));
   const { searchIndex, familiesById } = buildPokemonSearchIndex(pokemon);
@@ -233,6 +277,7 @@ export async function loadBattleDex() {
     byId,
     searchIndex,
     familiesById,
+    items,
     generations: unique(searchIndex.flatMap((entry) => entry.searchGenerations)).sort((left, right) => left - right),
     types: unique(pokemon.flatMap((entry) => entry.types)).sort((left, right) => left.localeCompare(right)),
     typeChart,
@@ -291,6 +336,49 @@ export function searchPokemon(list, query, filters = {}) {
     .sort((left, right) => right.score - left.score || sortPokemon(left.pokemon, right.pokemon))
     .slice(0, 60)
     .map((entry) => entry.pokemon);
+}
+
+function scoreItem(item, query) {
+  if (!query) return 1;
+
+  const normalizedQuery = toId(query);
+  const normalizedName = toId(item.name);
+  let score = 0;
+
+  if (normalizedName === normalizedQuery) score += 1200;
+  if (normalizedName.startsWith(normalizedQuery)) score += 900;
+  if (item.searchText.includes(query)) score += 400;
+  if (item.description.toLowerCase().includes(query)) score += 180;
+
+  return score;
+}
+
+export function searchItems(list, query) {
+  const normalizedQuery = String(query || '').trim().toLowerCase();
+  const results = list
+    .map((item) => ({
+      item,
+      score: scoreItem(item, normalizedQuery),
+    }))
+    .filter((entry) => entry.score > 0 || !normalizedQuery);
+
+  if (!normalizedQuery) {
+    return results.map((entry) => entry.item).sort(sortItems);
+  }
+
+  return results
+    .sort((left, right) => right.score - left.score || sortItems(left.item, right.item))
+    .map((entry) => entry.item);
+}
+
+export function getItemIconStyle(item) {
+  const spritenum = Number(item?.spritenum) || 0;
+  const top = Math.floor(spritenum / 16) * 24;
+  const left = (spritenum % 16) * 24;
+
+  return {
+    background: `transparent url(${SHOWDOWN_ITEM_SPRITE_SHEET_URL}) no-repeat scroll -${left}px -${top}px`,
+  };
 }
 
 function applyDamageCode(multiplier, code) {

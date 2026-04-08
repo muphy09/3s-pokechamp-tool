@@ -19,6 +19,7 @@ function subscribe(channel, callback) {
 
 contextBridge.exposeInMainWorld('app', {
   getVersion: () => invoke('app:getVersion'),
+  getUpdateState: () => invoke('app:getUpdateState'),
   checkForUpdates: () => invoke('app:checkForUpdates'),
   installUpdate: () => invoke('app:installUpdate'),
   openExternal: async (url) => {

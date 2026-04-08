@@ -6,7 +6,9 @@ import {
   computeTypeMultiplier,
   getArtworkUrl,
   getBattleSpriteSources,
+  getItemIconStyle,
   loadBattleDex,
+  searchItems,
   searchPokemon,
   statEntries,
 } from './services/showdownData.js';
@@ -189,7 +191,8 @@ function readStoredMode() {
 
 function readStoredTab() {
   try {
-    return localStorage.getItem(TAB_KEY) === 'battle' ? 'battle' : 'search';
+    const tab = localStorage.getItem(TAB_KEY);
+    return tab === 'battle' || tab === 'items' || tab === 'search' ? tab : 'search';
   } catch {
     return 'search';
   }
@@ -324,6 +327,66 @@ function createSearchFilters() {
     primaryType: '',
     secondaryType: '',
   };
+}
+
+function getUpdateDownloadingDetail(version) {
+  return version ? `Update ${version} is downloading.` : 'Update is downloading.';
+}
+
+function getUpdateDownloadedDetail(version) {
+  return version ? `Update ${version} is ready to install.` : 'An update is ready to install.';
+}
+
+function resolveUpdateState(snapshot, fallbackVersion = APP_VERSION) {
+  const currentVersion =
+    typeof snapshot?.current === 'string' && snapshot.current ? snapshot.current : fallbackVersion;
+  const nextVersion =
+    typeof snapshot?.version === 'string' && snapshot.version ? snapshot.version : null;
+  const detail =
+    typeof snapshot?.message === 'string'
+      ? snapshot.message
+      : typeof snapshot?.detail === 'string'
+        ? snapshot.detail
+        : '';
+
+  switch (snapshot?.status) {
+    case 'checking':
+      return { version: currentVersion, status: 'checking', detail: detail || 'Checking updates...' };
+    case 'available':
+    case 'downloading':
+      return {
+        version: currentVersion,
+        status: 'downloading',
+        detail: detail || getUpdateDownloadingDetail(nextVersion),
+      };
+    case 'downloaded':
+      return {
+        version: currentVersion,
+        status: 'downloaded',
+        detail: detail || getUpdateDownloadedDetail(nextVersion),
+      };
+    case 'current':
+    case 'unsupported':
+    case 'uptodate':
+      return {
+        version: currentVersion,
+        status: 'current',
+        detail: detail || 'You are on the latest release.',
+      };
+    case 'error':
+      return {
+        version: currentVersion,
+        status: 'error',
+        detail: detail || 'Update check failed.',
+      };
+    case 'idle':
+    default:
+      return {
+        version: currentVersion,
+        status: snapshot?.status || 'idle',
+        detail,
+      };
+  }
 }
 
 function formatGenerationLabel(generations = []) {
@@ -685,6 +748,55 @@ function PokemonSearchTab({ dataState, onOpenProfile }) {
   );
 }
 
+function ItemSearchResultCard({ item }) {
+  return (
+    <article className="item-card">
+      <div className="item-card-header">
+        <div className="item-card-title">
+          <span className="item-card-icon" style={getItemIconStyle(item)} aria-hidden="true" />
+          <strong>{item.name}</strong>
+        </div>
+        {item.gen ? <span className="muted-copy">Gen {item.gen}</span> : null}
+      </div>
+      <p className="item-card-description">{item.description}</p>
+    </article>
+  );
+}
+
+function ItemSearchTab({ dataState }) {
+  const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
+  const results = searchItems(dataState.data?.items || [], deferredQuery);
+
+  return (
+    <section className="catalog-panel">
+      <div className="catalog-header">
+        <div>
+          <h2>Items</h2>
+          {dataState.status === 'ready' ? <p className="muted-copy">{results.length} item{results.length === 1 ? '' : 's'}</p> : null}
+        </div>
+        <input
+          className="search-input catalog-search"
+          type="search"
+          placeholder="Search by item name or description"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </div>
+
+      {dataState.status === 'loading' ? <div className="drawer-empty">Loading item data...</div> : null}
+      {dataState.status === 'error' ? <div className="drawer-empty">{dataState.error}</div> : null}
+      {dataState.status === 'ready' && results.length === 0 ? <div className="drawer-empty">No items matched that search.</div> : null}
+
+      <div className="catalog-grid catalog-grid-items">
+        {results.map((item) => (
+          <ItemSearchResultCard key={item.id} item={item} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ProfileOverlay({ entry, onClose, onNatureChange }) {
   if (!entry?.pokemon) return null;
 
@@ -915,7 +1027,7 @@ function TeamStrip({
   onDragEnd,
 }) {
   return (
-    <section className={`team-strip team-strip-${side}`}>
+    <section className={`team-strip team-strip-${side}`} style={{ '--slot-count': entries.length }}>
       <p className="team-strip-title">{title}</p>
       <div className="team-strip-grid">
         {entries.map((entry) => (
@@ -1100,7 +1212,7 @@ export default function App() {
         setDataState({
           status: 'error',
           data: null,
-          error: error?.message || 'Failed to load Pokemon data.',
+          error: error?.message || 'Failed to load app data.',
         });
       });
 
@@ -1159,36 +1271,79 @@ export default function App() {
     let offAvailable = () => {};
     let offDownloaded = () => {};
     let offNotAvailable = () => {};
+    let offError = () => {};
 
-    async function loadVersion() {
+    async function loadUpdateContext() {
+      let version = '';
+      let snapshot = null;
+
       try {
-        const version = await window.app?.getVersion?.();
-        if (version) {
-          setUpdateState((current) => ({ ...current, version }));
-        }
+        version = (await window.app?.getVersion?.()) || '';
       } catch {}
+
+      try {
+        snapshot = await window.app?.getUpdateState?.();
+      } catch {}
+
+      setUpdateState((current) => {
+        const nextVersion = version || snapshot?.current || current.version;
+        if (snapshot) {
+          return resolveUpdateState(
+            {
+              ...snapshot,
+              current: snapshot.current || nextVersion,
+            },
+            nextVersion,
+          );
+        }
+
+        return nextVersion ? { ...current, version: nextVersion } : current;
+      });
     }
 
-    loadVersion();
+    loadUpdateContext();
 
     offChecking = window.app?.onCheckingForUpdate?.(() => {
-      setUpdateState((current) => ({ ...current, status: 'checking', detail: 'Checking updates...' }));
+      setUpdateState((current) =>
+        resolveUpdateState({ status: 'checking', current: current.version }, current.version),
+      );
     }) || offChecking;
     offAvailable = window.app?.onUpdateAvailable?.((version) => {
-      setUpdateState((current) => ({ ...current, status: 'available', detail: `Update ${version} is downloading.` }));
+      setUpdateState((current) =>
+        resolveUpdateState(
+          { status: 'downloading', current: current.version, version },
+          current.version,
+        ),
+      );
     }) || offAvailable;
     offDownloaded = window.app?.onUpdateDownloaded?.((version) => {
-      setUpdateState((current) => ({ ...current, status: 'downloaded', detail: `Update ${version} is ready to install.` }));
+      setUpdateState((current) =>
+        resolveUpdateState(
+          { status: 'downloaded', current: current.version, version },
+          current.version,
+        ),
+      );
     }) || offDownloaded;
     offNotAvailable = window.app?.onUpdateNotAvailable?.(() => {
-      setUpdateState((current) => ({ ...current, status: 'current', detail: 'You are on the latest release.' }));
+      setUpdateState((current) =>
+        resolveUpdateState({ status: 'current', current: current.version }, current.version),
+      );
     }) || offNotAvailable;
+    offError = window.app?.onUpdateError?.((message) => {
+      setUpdateState((current) =>
+        resolveUpdateState(
+          { status: 'error', current: current.version, message },
+          current.version,
+        ),
+      );
+    }) || offError;
 
     return () => {
       offChecking();
       offAvailable();
       offDownloaded();
       offNotAvailable();
+      offError();
     };
   }, []);
 
@@ -1507,36 +1662,38 @@ export default function App() {
   }
 
   async function handleCheckUpdates() {
-    setUpdateState((current) => ({ ...current, status: 'checking', detail: 'Checking updates...' }));
+    setUpdateState((current) =>
+      resolveUpdateState({ status: 'checking', current: current.version }, current.version),
+    );
 
     try {
       const result = await window.app?.checkForUpdates?.();
       if (!result) {
-        setUpdateState((current) => ({ ...current, status: 'idle', detail: 'Updater bridge unavailable.' }));
+        setUpdateState((current) =>
+          resolveUpdateState(
+            { status: 'error', current: current.version, message: 'Updater bridge unavailable.' },
+            current.version,
+          ),
+        );
         return;
       }
 
-      if (result.status === 'downloaded') {
-        setUpdateState((current) => ({ ...current, status: 'downloaded', detail: `Update ${result.version} is ready to install.` }));
-        return;
-      }
-
-      if (result.status === 'available' || result.status === 'downloading') {
-        setUpdateState((current) => ({ ...current, status: 'available', detail: `Update ${result.version} is downloading.` }));
-        return;
-      }
-
-      if (result.status === 'uptodate' || result.status === 'current') {
-        setUpdateState((current) => ({ ...current, status: 'current', detail: 'You are on the latest release.' }));
-        return;
-      }
-
-      if (result.status === 'error') {
-        setUpdateState((current) => ({ ...current, status: 'error', detail: result.message || 'Update check failed.' }));
-        return;
-      }
+      setUpdateState((current) =>
+        resolveUpdateState(
+          {
+            ...result,
+            current: result.current || current.version,
+          },
+          current.version,
+        ),
+      );
     } catch (error) {
-      setUpdateState((current) => ({ ...current, status: 'error', detail: error?.message || 'Update check failed.' }));
+      setUpdateState((current) =>
+        resolveUpdateState(
+          { status: 'error', current: current.version, message: error?.message || 'Update check failed.' },
+          current.version,
+        ),
+      );
     }
   }
 
@@ -1544,7 +1701,16 @@ export default function App() {
     try {
       await window.app?.installUpdate?.();
     } catch (error) {
-      setUpdateState((current) => ({ ...current, status: 'error', detail: error?.message || 'Unable to install the downloaded update.' }));
+      setUpdateState((current) =>
+        resolveUpdateState(
+          {
+            status: 'error',
+            current: current.version,
+            message: error?.message || 'Unable to install the downloaded update.',
+          },
+          current.version,
+        ),
+      );
     }
   }
 
@@ -1659,6 +1825,14 @@ export default function App() {
 
     return actions;
   })();
+  const updateActionDisabled =
+    updateState.status === 'checking' || updateState.status === 'downloading';
+  const updateActionLabel =
+    updateState.status === 'checking'
+      ? 'Checking...'
+      : updateState.status === 'downloading'
+        ? 'Downloading...'
+        : 'Check Updates';
 
   return (
     <div className="app-shell">
@@ -1672,41 +1846,48 @@ export default function App() {
           </div>
           <div className="brand-title-row">
             <h1>3&apos;s PokeChamp Tool</h1>
-
-            {activeTab === 'battle' ? (
-              <div className="mode-toggle battle-mode-toggle battle-mode-toggle-header">
-                <span className="fact-label">Battle Mode</span>
-                <div className="toggle-row">
-                  <button className={`toggle-button${battleMode === '1v1' ? ' toggle-button-active' : ''}`} type="button" onClick={() => setBattleMode('1v1')}>
-                    1v1
-                  </button>
-                  <button className={`toggle-button${battleMode === '2v2' ? ' toggle-button-active' : ''}`} type="button" onClick={() => setBattleMode('2v2')}>
-                    2v2
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            <nav className="tab-bar" aria-label="Primary">
-              <button
-                className={`tab-button${activeTab === 'search' ? ' tab-button-active' : ''}`}
-                type="button"
-                onClick={() => setActiveTab('search')}
-              >
-                Pokemon Search
-              </button>
-              <button
-                className={`tab-button${activeTab === 'battle' ? ' tab-button-active' : ''}`}
-                type="button"
-                onClick={() => setActiveTab('battle')}
-              >
-                Battle
-              </button>
-            </nav>
           </div>
         </div>
 
+        <nav className="tab-bar header-tabs" aria-label="Primary">
+          <button
+            className={`tab-button${activeTab === 'search' ? ' tab-button-active' : ''}`}
+            type="button"
+            onClick={() => setActiveTab('search')}
+          >
+            Pokemon Search
+          </button>
+          <button
+            className={`tab-button${activeTab === 'items' ? ' tab-button-active' : ''}`}
+            type="button"
+            onClick={() => setActiveTab('items')}
+          >
+            Items
+          </button>
+          <button
+            className={`tab-button${activeTab === 'battle' ? ' tab-button-active' : ''}`}
+            type="button"
+            onClick={() => setActiveTab('battle')}
+          >
+            Battle
+          </button>
+        </nav>
+
         <div className="header-controls">
+          {activeTab === 'battle' ? (
+            <div className="mode-toggle battle-mode-toggle battle-mode-toggle-header">
+              <span className="fact-label">Battle Mode</span>
+              <div className="toggle-row">
+                <button className={`toggle-button${battleMode === '1v1' ? ' toggle-button-active' : ''}`} type="button" onClick={() => setBattleMode('1v1')}>
+                  1v1
+                </button>
+                <button className={`toggle-button${battleMode === '2v2' ? ' toggle-button-active' : ''}`} type="button" onClick={() => setBattleMode('2v2')}>
+                  2v2
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <div className="update-panel">
             <span className="fact-label">Version</span>
             <strong>v{updateState.version}</strong>
@@ -1716,20 +1897,27 @@ export default function App() {
                 Install Update
               </button>
             ) : (
-              <button className="ghost-button" type="button" onClick={handleCheckUpdates}>
-                Check Updates
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={handleCheckUpdates}
+                disabled={updateActionDisabled}
+              >
+                {updateActionLabel}
               </button>
             )}
           </div>
         </div>
       </header>
 
-      {dataState.status === 'loading' ? <div className="status-banner">Loading Pokemon data...</div> : null}
+      {dataState.status === 'loading' ? <div className="status-banner">Loading data...</div> : null}
       {dataState.status === 'error' ? <div className="status-banner status-banner-error">{dataState.error}</div> : null}
 
       <main className="app-main">
         {activeTab === 'search' ? (
           <PokemonSearchTab dataState={dataState} onOpenProfile={handleCatalogResultSelect} />
+        ) : activeTab === 'items' ? (
+          <ItemSearchTab dataState={dataState} />
         ) : (
           <section className="battle-board">
             <div className="battle-board-head">

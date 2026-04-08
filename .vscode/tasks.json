@@ -2,37 +2,46 @@
     "version":  "2.0.0",
     "tasks":  [
                   {
-                      "label":  "Release Patch- x.x.0",
+                      "label":  "Release Patch - x.y.Z",
                       "type":  "shell",
                       "command":  "npm",
                       "args":  [
                                    "run",
                                    "release:patch"
                                ],
+                      "options":  {
+                                      "cwd":  "${workspaceFolder}"
+                                  },
                       "problemMatcher":  [
 
                                          ]
                   },
                   {
-                      "label":  "Release Minor - x.0.x",
+                      "label":  "Release Minor - x.Y.0",
                       "type":  "shell",
                       "command":  "npm",
                       "args":  [
                                    "run",
                                    "release:minor"
                                ],
+                      "options":  {
+                                      "cwd":  "${workspaceFolder}"
+                                  },
                       "problemMatcher":  [
 
                                          ]
                   },
                   {
-                      "label":  "Release Major - 0.x.x",
+                      "label":  "Release Major - X.0.0",
                       "type":  "shell",
                       "command":  "npm",
                       "args":  [
                                    "run",
                                    "release:major"
                                ],
+                      "options":  {
+                                      "cwd":  "${workspaceFolder}"
+                                  },
                       "problemMatcher":  [
 
                                          ]

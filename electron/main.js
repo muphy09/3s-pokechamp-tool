@@ -22,6 +22,14 @@ let autoUpdaterInstance = null;
 let updaterReady = false;
 let downloadingVersion = null;
 let downloadedVersion = null;
+let updateCheckPromise = null;
+const UPDATE_CHECK_DELAY_MS = 4000;
+const LATEST_RELEASE_MESSAGE = 'You are on the latest release.';
+let updateSnapshot = {
+  status: 'idle',
+  version: null,
+  message: '',
+};
 
 function normalizeVersion(value) {
   return String(value || '').replace(/^v/i, '');
@@ -66,6 +74,121 @@ function ensureAutoUpdater() {
   return autoUpdaterInstance;
 }
 
+function getCurrentVersion() {
+  return normalizeVersion(app.getVersion());
+}
+
+function getUpdateSnapshot() {
+  return {
+    status: updateSnapshot.status,
+    current: getCurrentVersion(),
+    version: updateSnapshot.version,
+    message: updateSnapshot.message,
+  };
+}
+
+function setUpdateSnapshot(nextSnapshot) {
+  updateSnapshot = {
+    status: nextSnapshot.status ?? updateSnapshot.status,
+    version: Object.prototype.hasOwnProperty.call(nextSnapshot, 'version')
+      ? normalizeVersion(nextSnapshot.version) || null
+      : updateSnapshot.version,
+    message: Object.prototype.hasOwnProperty.call(nextSnapshot, 'message')
+      ? String(nextSnapshot.message || '')
+      : updateSnapshot.message,
+  };
+
+  return getUpdateSnapshot();
+}
+
+function getDownloadingMessage(version) {
+  return version ? `Update ${version} is downloading.` : 'Update is downloading.';
+}
+
+function getDownloadedMessage(version) {
+  return version ? `Update ${version} is ready to install.` : 'An update is ready to install.';
+}
+
+async function runUpdateCheck() {
+  const updater = ensureAutoUpdater();
+  if (!updater) {
+    return setUpdateSnapshot({ status: 'error', version: null, message: 'Updater unavailable.' });
+  }
+
+  if (!app.isPackaged) {
+    return setUpdateSnapshot({ status: 'idle', version: null, message: '' });
+  }
+
+  const currentVersion = getCurrentVersion();
+
+  if (downloadedVersion && isNewerVersion(downloadedVersion, currentVersion)) {
+    return setUpdateSnapshot({
+      status: 'downloaded',
+      version: downloadedVersion,
+      message: getDownloadedMessage(downloadedVersion),
+    });
+  }
+
+  if (updateCheckPromise) {
+    return updateCheckPromise;
+  }
+
+  if (downloadingVersion && isNewerVersion(downloadingVersion, currentVersion)) {
+    return setUpdateSnapshot({
+      status: 'downloading',
+      version: downloadingVersion,
+      message: getDownloadingMessage(downloadingVersion),
+    });
+  }
+
+  setUpdateSnapshot({ status: 'checking', version: null, message: 'Checking updates...' });
+
+  updateCheckPromise = (async () => {
+    try {
+      const result = await updater.checkForUpdates();
+      const nextVersion = normalizeVersion(result?.updateInfo?.version);
+
+      if (downloadedVersion && isNewerVersion(downloadedVersion, currentVersion)) {
+        return setUpdateSnapshot({
+          status: 'downloaded',
+          version: downloadedVersion,
+          message: getDownloadedMessage(downloadedVersion),
+        });
+      }
+
+      if (downloadingVersion && isNewerVersion(downloadingVersion, currentVersion)) {
+        return setUpdateSnapshot({
+          status: 'downloading',
+          version: downloadingVersion,
+          message: getDownloadingMessage(downloadingVersion),
+        });
+      }
+
+      if (nextVersion && isNewerVersion(nextVersion, currentVersion)) {
+        downloadingVersion = nextVersion;
+        return setUpdateSnapshot({
+          status: 'downloading',
+          version: nextVersion,
+          message: getDownloadingMessage(nextVersion),
+        });
+      }
+
+      return setUpdateSnapshot({ status: 'current', version: null, message: LATEST_RELEASE_MESSAGE });
+    } catch (error) {
+      downloadingVersion = null;
+      return setUpdateSnapshot({
+        status: 'error',
+        version: downloadedVersion || null,
+        message: error?.message || String(error),
+      });
+    } finally {
+      updateCheckPromise = null;
+    }
+  })();
+
+  return updateCheckPromise;
+}
+
 function setupAutoUpdates() {
   if (updaterReady) return;
 
@@ -77,46 +200,59 @@ function setupAutoUpdates() {
   updater.autoInstallOnAppQuit = true;
 
   updater.on('checking-for-update', () => {
-    sendToRenderer('update:checking');
+    setUpdateSnapshot({ status: 'checking', version: null, message: 'Checking updates...' });
+    sendToRenderer('update:checking', getUpdateSnapshot());
   });
 
   updater.on('update-available', (info) => {
     const version = normalizeVersion(info?.version);
     downloadingVersion = version || null;
+    downloadedVersion = null;
+    setUpdateSnapshot({
+      status: 'downloading',
+      version,
+      message: getDownloadingMessage(version),
+    });
     sendToRenderer('update:available', version);
   });
 
   updater.on('update-not-available', () => {
     downloadingVersion = null;
-    sendToRenderer('update:not-available');
+    setUpdateSnapshot({ status: 'current', version: null, message: LATEST_RELEASE_MESSAGE });
+    sendToRenderer('update:not-available', getUpdateSnapshot());
   });
 
   updater.on('update-downloaded', (info) => {
     const version = normalizeVersion(info?.version);
     downloadingVersion = null;
     downloadedVersion = version || null;
+    setUpdateSnapshot({
+      status: 'downloaded',
+      version,
+      message: getDownloadedMessage(version),
+    });
     sendToRenderer('update:downloaded', version);
   });
 
   updater.on('error', (error) => {
-    sendToRenderer('update:error', error?.message || String(error));
+    downloadingVersion = null;
+    const message = error?.message || String(error);
+    setUpdateSnapshot({
+      status: 'error',
+      version: downloadedVersion || null,
+      message,
+    });
+    sendToRenderer('update:error', message);
   });
 
-  if (!app.isPackaged) return;
-
-  try {
-    updater.setFeedURL({
-      provider: 'github',
-      owner: 'muphy09',
-      repo: '3s-pokechamp-tool',
-    });
-  } catch {}
+  if (!app.isPackaged) {
+    setUpdateSnapshot({ status: 'idle', version: null, message: '' });
+    return;
+  }
 
   setTimeout(() => {
-    try {
-      updater.checkForUpdates();
-    } catch {}
-  }, 4000);
+    void runUpdateCheck();
+  }, UPDATE_CHECK_DELAY_MS);
 }
 
 function createMainWindow() {
@@ -172,49 +308,18 @@ function createMainWindow() {
 }
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
+ipcMain.handle('app:getUpdateState', () => getUpdateSnapshot());
 
-ipcMain.handle('app:checkForUpdates', async () => {
-  const updater = ensureAutoUpdater();
-  if (!updater) {
-    return { status: 'error', message: 'Updater unavailable.' };
-  }
-
-  if (!app.isPackaged) {
-    return { status: 'current', current: app.getVersion(), message: 'Update checks run in packaged builds.' };
-  }
-
-  const currentVersion = app.getVersion();
-
-  if (downloadedVersion && isNewerVersion(downloadedVersion, currentVersion)) {
-    return { status: 'downloaded', version: downloadedVersion, current: currentVersion };
-  }
-
-  if (downloadingVersion && isNewerVersion(downloadingVersion, currentVersion)) {
-    return { status: 'downloading', version: downloadingVersion, current: currentVersion };
-  }
-
-  try {
-    const result = await updater.checkForUpdates();
-    const nextVersion = normalizeVersion(result?.updateInfo?.version);
-
-    if (nextVersion && isNewerVersion(nextVersion, currentVersion)) {
-      downloadingVersion = nextVersion;
-      try {
-        await updater.downloadUpdate();
-      } catch {}
-      return { status: 'available', version: nextVersion, current: currentVersion };
-    }
-
-    return { status: 'uptodate', current: currentVersion };
-  } catch (error) {
-    return { status: 'error', message: error?.message || String(error) };
-  }
-});
+ipcMain.handle('app:checkForUpdates', async () => runUpdateCheck());
 
 ipcMain.handle('app:installUpdate', async () => {
   const updater = ensureAutoUpdater();
   if (!updater) {
     throw new Error('Updater unavailable.');
+  }
+
+  if (!downloadedVersion) {
+    throw new Error('No downloaded update is ready to install.');
   }
 
   downloadedVersion = null;
