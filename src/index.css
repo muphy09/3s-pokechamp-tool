@@ -1154,7 +1154,7 @@ a {
 
 .team-strip-rail {
   position: relative;
-  width: calc((var(--slot-count, 6) * var(--team-slot-width)) + ((var(--slot-count, 6) - 1) * var(--team-slot-gap)));
+  width: calc((var(--slot-count, 3) * var(--team-slot-width)) + ((var(--slot-count, 3) - 1) * var(--team-slot-gap)));
   min-width: 0;
   height: 34px;
 }

@@ -42,7 +42,9 @@
         "filter": [
           "dist/**",
           "electron/**",
-          "package.json"
+          "package.json",
+          "resources/icon.ico",
+          "resources/icon.png"
         ]
       },
       "!release/**",

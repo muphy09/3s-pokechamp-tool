@@ -1,3 +1,4 @@
+const fs = require('fs');
 const { app, BrowserWindow, ipcMain, Menu, shell } = require('electron');
 const path = require('path');
 
@@ -255,6 +256,12 @@ function setupAutoUpdates() {
   }, UPDATE_CHECK_DELAY_MS);
 }
 
+function getWindowIconPath() {
+  const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
+  const iconPath = path.join(__dirname, '..', 'resources', iconName);
+  return fs.existsSync(iconPath) ? iconPath : undefined;
+}
+
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1480,
@@ -262,6 +269,7 @@ function createMainWindow() {
     minWidth: 1180,
     minHeight: 760,
     backgroundColor: '#090807',
+    icon: getWindowIconPath(),
     show: false,
     autoHideMenuBar: true,
     webPreferences: {

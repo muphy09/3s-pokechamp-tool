@@ -3,7 +3,7 @@ const SHOWDOWN_ABILITIES_URL = 'https://play.pokemonshowdown.com/data/abilities.
 const SHOWDOWN_ITEMS_URL = 'https://play.pokemonshowdown.com/data/items.js';
 const SHOWDOWN_TYPECHART_URL = 'https://play.pokemonshowdown.com/data/typechart.js';
 const SHOWDOWN_ITEM_SPRITE_SHEET_URL = 'https://play.pokemonshowdown.com/sprites/itemicons-sheet.png?v1';
-const CACHE_KEY = 'pokechamp:showdown:v5';
+const CACHE_KEY = 'pokechamp:showdown:v6';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 const EXCLUDED_POKEMON_NONSTANDARD = new Set(['cap', 'custom', 'glitch', 'pokestar']);
 const EXCLUDED_ITEM_NONSTANDARD = new Set(['custom', 'glitch']);
@@ -144,6 +144,7 @@ function normalizePokemon(id, entry, abilityMap) {
     color: entry.color || '',
     requiredItem: entry.requiredItem || '',
     isBattleOnly: Boolean(entry.battleOnly),
+    evoIds: Array.isArray(entry.evos) ? entry.evos.map((value) => toId(value)).filter(Boolean) : [],
   };
 
   pokemon.searchText = [pokemon.name, pokemon.baseSpecies, pokemon.forme, pokemon.baseForme, ...pokemon.types].join(' ').toLowerCase();
@@ -183,6 +184,10 @@ function selectDefaultPokemonForm(forms) {
   );
 }
 
+function isFinalEvolutionFamily(forms) {
+  return !forms.some((pokemon) => pokemon.evoIds.length > 0);
+}
+
 function buildPokemonSearchIndex(pokemon) {
   const grouped = new Map();
 
@@ -194,6 +199,7 @@ function buildPokemonSearchIndex(pokemon) {
   });
 
   const searchIndex = Array.from(grouped.entries())
+    .filter(([, forms]) => isFinalEvolutionFamily(forms))
     .map(([familyId, forms]) => {
       const defaultForm = selectDefaultPokemonForm(forms);
       const orderedForms = [defaultForm, ...forms.filter((entry) => entry.id !== defaultForm.id).sort(sortPokemon)];

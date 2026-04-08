@@ -19,7 +19,7 @@ const BATTLE_MODE_KEY = 'pokechamp:battle-mode';
 const PLAYER_TEAM_KEY = 'pokechamp:player-team';
 const OPPONENT_TEAM_KEY = 'pokechamp:opponent-team';
 const DEFAULT_NATURE = 'Serious';
-const TEAM_SIZE = 6;
+const TEAM_SIZE = 3;
 const DRAG_MIME = 'application/x-pokechamp-team-slot';
 const CONTEXT_MENU_WIDTH = 260;
 const CONTEXT_MENU_HEIGHT = 320;
@@ -837,7 +837,7 @@ function ProfileOverlay({ entry, onClose, onNatureChange }) {
             <div className="profile-facts">
               <div>
                 <span className="fact-label">Nature</span>
-                <select className="nature-select nature-select-wide" value={nature} onChange={(event) => onNatureChange(event.target.value)}>
+                <select className="search-input search-select nature-select-wide" value={nature} onChange={(event) => onNatureChange(event.target.value)}>
                   {NATURES.map((item) => (
                     <option key={item.name} value={item.name}>
                       {item.name}
@@ -983,7 +983,7 @@ function TeamSlot({
 
   if (!entry.pokemon) {
     return (
-      <button className="team-slot team-slot-empty" type="button" onClick={onClick} aria-label={slotTitle} title={slotTitle}>
+      <button className="team-slot team-slot-empty" type="button" onClick={onClick} aria-label={slotTitle}>
         <span className="team-slot-core">
           <span className="team-slot-plus">+</span>
         </span>
@@ -998,7 +998,6 @@ function TeamSlot({
       type="button"
       draggable={!entry.fainted}
       aria-label={slotTitle}
-      title={slotTitle}
       onClick={onClick}
       onContextMenu={onContextMenu}
       onMouseEnter={(event) => onHover(entry, event.currentTarget)}
@@ -1760,6 +1759,11 @@ export default function App() {
           label: 'View Details',
           onSelect: () => openProfile(contextMenuState.side, entry.rosterIndex),
         },
+        {
+          label: 'Remove from Team',
+          onSelect: () => clearSlot(contextMenuState.side, entry.rosterIndex),
+          danger: true,
+        },
       ];
     }
 
@@ -1818,7 +1822,7 @@ export default function App() {
       onSelect: () => openSearch(contextMenuState.side, contextMenuState.rosterIndex),
     });
     actions.push({
-      label: 'Clear Slot',
+      label: 'Remove from Team',
       onSelect: () => clearSlot(contextMenuState.side, contextMenuState.rosterIndex),
       danger: true,
     });
