@@ -51,6 +51,14 @@ function toId(value = '') {
   return String(value).toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
+function collectAbilityNames(pokemon = []) {
+  return unique(
+    pokemon.flatMap((entry) =>
+      Array.isArray(entry?.abilities) ? entry.abilities.map((ability) => ability?.name).filter(Boolean) : [],
+    ),
+  ).sort((left, right) => left.localeCompare(right));
+}
+
 function formatTypeName(typeId = '') {
   const value = String(typeId || '').trim().toLowerCase();
   if (!value) return '';
@@ -252,7 +260,12 @@ async function fetchText(url) {
 
 export async function loadBattleDex() {
   const cached = readCache();
-  if (cached) return cached;
+  if (cached) {
+    return {
+      ...cached,
+      abilities: Array.isArray(cached.abilities) ? cached.abilities : collectAbilityNames(cached.pokemon),
+    };
+  }
 
   const [pokedex, abilitySource, itemSource, typeSource] = await Promise.all([
     fetchJson(SHOWDOWN_POKEDEX_URL),
@@ -293,6 +306,7 @@ export async function loadBattleDex() {
     generations: unique(searchIndex.flatMap((entry) => entry.searchGenerations)).sort((left, right) => left - right),
     regulationSets: REGULATION_SET_OPTIONS,
     types: unique(pokemon.flatMap((entry) => entry.types)).sort((left, right) => left.localeCompare(right)),
+    abilities: collectAbilityNames(pokemon),
     typeChart,
   };
 
@@ -323,9 +337,10 @@ function matchesFilters(pokemon, filters = {}) {
   const generation = Number(filters.generation) || null;
   const primaryType = formatTypeName(filters.primaryType || '');
   const secondaryType = formatTypeName(filters.secondaryType || '');
+  const ability = toId(filters.ability || '');
   const regulationSet = String(filters.regulationSet || DEFAULT_REGULATION_SET);
 
-  if (!generation && !primaryType && !secondaryType && !regulationSet) {
+  if (!generation && !primaryType && !secondaryType && !ability && !regulationSet) {
     return true;
   }
 
@@ -335,6 +350,7 @@ function matchesFilters(pokemon, filters = {}) {
     if (generation && form.gen !== generation) return false;
     if (primaryType && !form.types.includes(primaryType)) return false;
     if (secondaryType && !form.types.includes(secondaryType)) return false;
+    if (ability && !form.abilities.some((entry) => toId(entry.name).includes(ability))) return false;
     if (regulationSet && !form.regulations?.includes(regulationSet)) return false;
     return true;
   });

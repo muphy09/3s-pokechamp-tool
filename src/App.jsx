@@ -1,4 +1,4 @@
-import React, { startTransition, useDeferredValue, useEffect, useState } from 'react';
+import React, { startTransition, useDeferredValue, useEffect, useId, useState } from 'react';
 import logo from './assets/luxuryb.png';
 import { NATURES, describeNature, getNature } from './data/natures.js';
 import {
@@ -297,6 +297,7 @@ function createSearchFilters() {
     generation: '',
     primaryType: '',
     secondaryType: '',
+    ability: '',
   };
 }
 
@@ -522,6 +523,7 @@ function HoverCard({ hoverState }) {
 function SearchFilters({
   generations,
   types,
+  abilities,
   filters,
   onChange,
   compact = false,
@@ -529,6 +531,8 @@ function SearchFilters({
   regulationSets = REGULATION_SET_OPTIONS,
   onRegulationChange,
 }) {
+  const abilityOptionsId = useId();
+
   return (
     <div className={`search-filter-row${compact ? ' search-filter-row-compact' : ''}`}>
       <label className="search-filter-field">
@@ -604,6 +608,23 @@ function SearchFilters({
           </select>
         </label>
       ) : null}
+
+      <label className="search-filter-field">
+        <span className="fact-label">Ability</span>
+        <input
+          className="search-input"
+          type="search"
+          list={abilityOptionsId}
+          placeholder="Any ability"
+          value={filters.ability}
+          onChange={(event) => onChange((current) => ({ ...current, ability: event.target.value }))}
+        />
+        <datalist id={abilityOptionsId}>
+          {abilities.map((ability) => (
+            <option key={ability} value={ability} />
+          ))}
+        </datalist>
+      </label>
     </div>
   );
 }
@@ -663,6 +684,7 @@ function SearchDrawer({
   const generations = dataState.data?.generations || [];
   const regulationSets = dataState.data?.regulationSets || REGULATION_SET_OPTIONS;
   const types = dataState.data?.types || [];
+  const abilities = dataState.data?.abilities || [];
 
   return (
     <div className="drawer-backdrop" onClick={onClose}>
@@ -697,6 +719,7 @@ function SearchDrawer({
         <SearchFilters
           generations={generations}
           types={types}
+          abilities={abilities}
           filters={filters}
           onChange={setFilters}
           compact
@@ -727,6 +750,7 @@ function PokemonSearchTab({ dataState, onOpenProfile, regulationSet, onRegulatio
   const generations = dataState.data?.generations || [];
   const regulationSets = dataState.data?.regulationSets || REGULATION_SET_OPTIONS;
   const types = dataState.data?.types || [];
+  const abilities = dataState.data?.abilities || [];
 
   return (
     <section className="catalog-panel">
@@ -744,6 +768,7 @@ function PokemonSearchTab({ dataState, onOpenProfile, regulationSet, onRegulatio
       <SearchFilters
         generations={generations}
         types={types}
+        abilities={abilities}
         filters={filters}
         onChange={setFilters}
         regulationSet={regulationSet}
